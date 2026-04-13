@@ -201,7 +201,10 @@ func TestVersionConsistency_Fail(t *testing.T) {
 
 func TestDeveloperMode_Pass(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
-		"/v1/cluster_config": jsonHandler(t, map[string]any{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
 			"developer_mode": false,
 		}),
 	})
@@ -214,7 +217,10 @@ func TestDeveloperMode_Pass(t *testing.T) {
 
 func TestDeveloperMode_Fail(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
-		"/v1/cluster_config": jsonHandler(t, map[string]any{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
 			"developer_mode": true,
 		}),
 	})
@@ -229,7 +235,10 @@ func TestDeveloperMode_Fail(t *testing.T) {
 
 func TestOverprovisioned_Pass(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
-		"/v1/cluster_config": jsonHandler(t, map[string]any{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
 			"overprovisioned": false,
 		}),
 	})
