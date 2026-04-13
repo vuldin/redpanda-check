@@ -1,0 +1,34 @@
+---
+project_name: redpanda-check
+dist: target/dist
+version: 2
+
+builds:
+  - id: redpanda-check
+    main: cmd/redpanda-check/main.go
+    binary: redpanda-check
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    env:
+      - CGO_ENABLED=0
+    ldflags: >
+      -s -w
+      -X main.version={{.Version}}
+
+archives:
+  - id: redpanda-check
+    ids: [redpanda-check]
+    formats: tar.gz
+    files:
+      - README.md
+
+release:
+  github:
+    owner: vuldin
+    name: redpanda-check
+  prerelease: auto
+  replace_existing_artifacts: true
+  mode: replace
+
+checksum:
+  split: true

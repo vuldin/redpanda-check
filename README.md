@@ -120,13 +120,35 @@ Best practices. Failures produce warnings but do not affect exit code.
 
 ## rpk plugin integration
 
-To use as an rpk managed plugin, place the binary in `~/.local/bin/`:
+This binary is distributed as an rpk managed plugin. Once the rpk integration PR is merged, `rpk check` auto-installs the binary on first run and injects admin API connection details from your rpk profile:
+
+```
+rpk check
+rpk check install
+rpk check upgrade
+rpk check uninstall
+```
+
+For manual installation (or testing before the manifest is published):
 
 ```
 cp redpanda-check ~/.local/bin/.rpk.managed-check
 ```
 
-Then `rpk check` will discover and execute it, injecting admin API connection details from your rpk profile.
+## Releasing
+
+Tagged releases trigger a GitHub Actions workflow that:
+
+1. Builds multi-arch binaries via GoReleaser (linux/darwin, amd64/arm64)
+2. Uploads artifacts to `s3://rpk-plugins-repo/check/`
+3. Generates `rpk-plugins.redpanda.com/check/manifest.json`
+
+To release:
+
+```
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 ## Testing
 
