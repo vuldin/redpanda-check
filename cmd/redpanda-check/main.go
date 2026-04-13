@@ -192,6 +192,7 @@ func run(ctx context.Context, cfg runConfig) error {
 		checks.NoFractionalCPU,
 		checks.TopologySpread,
 		checks.NodeIsolation,
+		checks.TuningInitContainer,
 	}
 
 	for _, check := range allChecks {

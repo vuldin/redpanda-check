@@ -66,7 +66,7 @@ func PrintText(w io.Writer, report Report, verbose bool, isK8s bool) {
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Note: Some production readiness requirements (monitoring, backup/DR strategy,")
-	fmt.Fprintln(w, "upgrade policy, system tuning, etc.) cannot be verified programmatically.")
+	fmt.Fprintln(w, "upgrade policy, etc.) cannot be verified programmatically.")
 	fmt.Fprintln(w, "Review the full checklist for your deployment type:")
 	if isK8s {
 		fmt.Fprintln(w, "  https://docs.redpanda.com/current/deploy/redpanda/kubernetes/k-production-readiness/")

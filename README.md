@@ -116,6 +116,7 @@ Best practices. Failures produce warnings but do not affect exit code.
 | ballast_file | Ballast file configured (checked per-broker) |
 | topology_spread | topologySpreadConstraints or podAntiAffinity configured (K8s) |
 | node_isolation | Dedicated node scheduling via nodeSelector/tolerations (K8s) |
+| tuning_init_container | Tuning init container completed on all pods (K8s) |
 
 ## rpk plugin integration
 
