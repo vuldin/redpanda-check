@@ -82,6 +82,7 @@ Must pass for production readiness. Failures exit with code 1.
 |-------|-------------------|
 | cluster_health | All brokers healthy, no leaderless/under-replicated partitions |
 | license_check | Valid license loaded and not expired |
+| license_expiry | License not expiring within 7 days |
 | enterprise_license_compliance | No enterprise features used without valid license |
 | broker_count | At least 3 brokers |
 | broker_membership | All brokers active (not decommissioning) |
@@ -92,13 +93,16 @@ Must pass for production readiness. Failures exit with code 1.
 | min_topic_replications | Minimum topic replications >= 3 |
 | existing_topics_replication | All topics have replication factor >= 3 |
 | version_consistency | Same Redpanda version on all brokers |
-| authorization_enabled | Authorization/SASL enabled |
+| authorization_enabled | SASL enabled cluster-wide (`enable_sasl`) or per-listener (`kafka_enable_authorization` with `authentication_method: sasl` on each Kafka listener) |
+| sasl_users | At least one SASL user exists when auth is enabled |
 | tls_enabled | TLS on Kafka API and Admin API listeners (checked per-broker) |
 | internal_rpc_tls | TLS on internal RPC (checked per-broker) |
+| advertised_addresses | Advertised Kafka and RPC addresses are routable (not 0.0.0.0 or empty) |
 | persistent_storage | PVCs present, no hostPath provisioner (K8s) |
+| storage_performance | Local NVMe storage, not network-attached EBS/PD/Azure Disk (K8s) |
 | resource_limits | CPU/memory requests equal limits (K8s) |
 | pod_disruption_budget | PDB exists in namespace (K8s) |
-| cpu_memory_ratio | Memory-to-CPU ratio >= 2:1 (K8s) |
+| cpu_memory_ratio | Memory-to-CPU ratio >= 2 GiB per core |
 | no_fractional_cpu | Whole-integer CPU allocations (K8s) |
 
 ### Recommended
@@ -107,6 +111,8 @@ Best practices. Failures produce warnings but do not affect exit code.
 
 | Check | What it validates |
 |-------|-------------------|
+| license_expiry | License not expiring within 30 days |
+| superusers_configured | At least one superuser configured when auth is enabled |
 | continuous_data_balancing | partition_autobalancing_mode is "continuous" |
 | rack_awareness | Rack awareness enabled, all brokers have rack IDs |
 | tiered_storage | Cloud storage enabled |
@@ -114,9 +120,13 @@ Best practices. Failures produce warnings but do not affect exit code.
 | core_balancing | Core balancing on core count change enabled |
 | partition_balancer_status | Partition balancer not stalled |
 | ballast_file | Ballast file configured (checked per-broker) |
+| storage_class_validation | StorageClass provisioner and parameters match cloud provider best practices (K8s) |
+| cpu_memory_ratio_recommended | Memory-to-CPU ratio >= 4 GiB per core |
 | topology_spread | topologySpreadConstraints or podAntiAffinity configured (K8s) |
 | node_isolation | Dedicated node scheduling via nodeSelector/tolerations (K8s) |
 | tuning_init_container | Tuning init container completed on all pods (K8s) |
+| kubernetes_version | Kubernetes nodes running a supported version (K8s) |
+| network_policies | At least one NetworkPolicy exists in namespace (K8s) |
 
 ## rpk plugin integration
 

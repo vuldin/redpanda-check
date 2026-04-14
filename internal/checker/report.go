@@ -79,7 +79,7 @@ func printSection(w io.Writer, title string, checks []CheckResult, verbose bool)
 	// Count visible checks to decide whether to print the header.
 	visible := 0
 	for _, c := range checks {
-		if verbose || c.Status != StatusPass {
+		if verbose || (c.Status != StatusPass && c.Status != StatusSkip) {
 			visible++
 		}
 	}
@@ -89,7 +89,7 @@ func printSection(w io.Writer, title string, checks []CheckResult, verbose bool)
 
 	fmt.Fprintf(w, "--- %s ---\n", title)
 	for _, c := range checks {
-		if !verbose && c.Status == StatusPass {
+		if !verbose && (c.Status == StatusPass || c.Status == StatusSkip) {
 			continue
 		}
 

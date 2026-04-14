@@ -163,6 +163,7 @@ func run(ctx context.Context, cfg runConfig) error {
 		// Critical checks (must pass for production readiness).
 		checks.ClusterHealth,
 		checks.License,
+		checks.LicenseExpiry,
 		checks.EnterpriseLicense,
 		checks.BrokerCount,
 		checks.BrokerMembership,
@@ -174,9 +175,12 @@ func run(ctx context.Context, cfg runConfig) error {
 		checks.ExistingTopicsReplication,
 		checks.VersionConsistency,
 		checks.Authorization,
+		checks.SASLUsers,
 		checks.TLSEnabled,
 		checks.InternalRPCTLS,
+		checks.AdvertisedAddresses,
 		// Recommended checks (best practices).
+		checks.Superusers,
 		checks.DataBalancing,
 		checks.RackAwareness,
 		checks.TieredStorage,
@@ -186,13 +190,18 @@ func run(ctx context.Context, cfg runConfig) error {
 		checks.BallastFile,
 		// K8s-specific checks (skip gracefully when no K8s client).
 		checks.PersistentStorage,
+		checks.StorageClassValidation,
+		checks.StoragePerformance,
 		checks.ResourceLimits,
 		checks.PodDisruptionBudget,
 		checks.CPUMemoryRatio,
+		checks.CPUMemoryRatioRecommended,
 		checks.NoFractionalCPU,
 		checks.TopologySpread,
 		checks.NodeIsolation,
 		checks.TuningInitContainer,
+		checks.KubernetesVersion,
+		checks.NetworkPolicies,
 	}
 
 	for _, check := range allChecks {

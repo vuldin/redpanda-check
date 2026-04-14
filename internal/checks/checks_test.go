@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/redpanda-data/common-go/rpadmin"
 	"github.com/vuldin/redpanda-check/internal/checker"
@@ -279,7 +280,7 @@ func TestReplicationFactor_Fail(t *testing.T) {
 
 // --- Authorization ---
 
-func TestAuthorization_Pass(t *testing.T) {
+func TestAuthorization_Pass_GlobalSASL(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/cluster_config": jsonHandler(t, map[string]any{
 			"kafka_enable_authorization": true,
@@ -293,11 +294,57 @@ func TestAuthorization_Pass(t *testing.T) {
 	}
 }
 
-func TestAuthorization_Fail(t *testing.T) {
+func TestAuthorization_Pass_PerListenerSASL(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/cluster_config": jsonHandler(t, map[string]any{
+			"kafka_enable_authorization": true,
+			"enable_sasl":               false,
+		}),
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"kafka_api": []any{
+				map[string]any{"name": "internal", "address": "0.0.0.0", "port": float64(9093), "authentication_method": "sasl"},
+				map[string]any{"name": "external", "address": "0.0.0.0", "port": float64(9094), "authentication_method": "sasl"},
+			},
+		}),
+	})
+	checks.Authorization(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestAuthorization_Fail_NeitherEnabled(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/cluster_config": jsonHandler(t, map[string]any{
 			"kafka_enable_authorization": false,
 			"enable_sasl":               false,
+		}),
+	})
+	checks.Authorization(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestAuthorization_Fail_PerListenerMissingSASL(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/cluster_config": jsonHandler(t, map[string]any{
+			"kafka_enable_authorization": true,
+			"enable_sasl":               false,
+		}),
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"kafka_api": []any{
+				map[string]any{"name": "internal", "address": "0.0.0.0", "port": float64(9093), "authentication_method": "sasl"},
+				map[string]any{"name": "external", "address": "0.0.0.0", "port": float64(9094)},
+			},
 		}),
 	})
 	checks.Authorization(context.Background(), pc)
@@ -324,6 +371,104 @@ func TestLicense_Pass(t *testing.T) {
 
 	if pc.Results[0].Status != checker.StatusPass {
 		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestLicense_Fail_Expired(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/features/license": jsonHandler(t, rpadmin.License{
+			Loaded: true,
+			Properties: rpadmin.LicenseProperties{
+				Type:         "enterprise",
+				Organization: "test-org",
+				Expires:      1000000000, // 2001-09-08 (long expired)
+			},
+		}),
+	})
+	checks.License(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+// --- LicenseExpiry ---
+
+func TestLicenseExpiry_Pass(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/features/license": jsonHandler(t, rpadmin.License{
+			Loaded: true,
+			Properties: rpadmin.LicenseProperties{
+				Expires: time.Now().Add(90 * 24 * time.Hour).Unix(),
+			},
+		}),
+	})
+	checks.LicenseExpiry(context.Background(), pc)
+
+	if len(pc.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(pc.Results))
+	}
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestLicenseExpiry_Warn_30Days(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/features/license": jsonHandler(t, rpadmin.License{
+			Loaded: true,
+			Properties: rpadmin.LicenseProperties{
+				Expires: time.Now().Add(15 * 24 * time.Hour).Unix(),
+			},
+		}),
+	})
+	checks.LicenseExpiry(context.Background(), pc)
+
+	if len(pc.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(pc.Results))
+	}
+	r := pc.Results[0]
+	if r.Status != checker.StatusWarn {
+		t.Errorf("expected WARN, got %s: %s", r.Status, r.Details)
+	}
+	if r.Level != checker.LevelRecommended {
+		t.Errorf("expected level recommended, got %s", r.Level)
+	}
+}
+
+func TestLicenseExpiry_Fail_7Days(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/features/license": jsonHandler(t, rpadmin.License{
+			Loaded: true,
+			Properties: rpadmin.LicenseProperties{
+				Expires: time.Now().Add(3 * 24 * time.Hour).Unix(),
+			},
+		}),
+	})
+	checks.LicenseExpiry(context.Background(), pc)
+
+	if len(pc.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(pc.Results))
+	}
+	r := pc.Results[0]
+	if r.Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", r.Status, r.Details)
+	}
+	if r.Level != checker.LevelCritical {
+		t.Errorf("expected level critical, got %s", r.Level)
+	}
+}
+
+func TestLicenseExpiry_NoResult_WhenNotLoaded(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/features/license": jsonHandler(t, rpadmin.License{
+			Loaded: false,
+		}),
+	})
+	checks.LicenseExpiry(context.Background(), pc)
+
+	if len(pc.Results) != 0 {
+		t.Errorf("expected no results for unloaded license, got %d", len(pc.Results))
 	}
 }
 
@@ -552,6 +697,248 @@ func TestPartitionBalancerStatus_Stalled(t *testing.T) {
 	}
 }
 
+// --- SASLUsers ---
+
+func TestSASLUsers_Pass(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/cluster_config": jsonHandler(t, map[string]any{
+			"kafka_enable_authorization": true,
+			"enable_sasl":               true,
+		}),
+		"/v1/security/users": jsonHandler(t, []string{"admin", "producer"}),
+	})
+	checks.SASLUsers(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestSASLUsers_Fail_NoUsers(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/cluster_config": jsonHandler(t, map[string]any{
+			"kafka_enable_authorization": true,
+			"enable_sasl":               true,
+		}),
+		"/v1/security/users": jsonHandler(t, []string{}),
+	})
+	checks.SASLUsers(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestSASLUsers_Skip_AuthDisabled(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/cluster_config": jsonHandler(t, map[string]any{
+			"kafka_enable_authorization": false,
+			"enable_sasl":               false,
+		}),
+	})
+	checks.SASLUsers(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+// --- Superusers ---
+
+func TestSuperusers_Pass(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/cluster_config": jsonHandler(t, map[string]any{
+			"kafka_enable_authorization": true,
+			"superusers":                []any{"admin"},
+		}),
+	})
+	checks.Superusers(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestSuperusers_Warn_Empty(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/cluster_config": jsonHandler(t, map[string]any{
+			"kafka_enable_authorization": true,
+			"superusers":                []any{},
+		}),
+	})
+	checks.Superusers(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusWarn {
+		t.Errorf("expected WARN, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestSuperusers_Skip_AuthDisabled(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/cluster_config": jsonHandler(t, map[string]any{
+			"kafka_enable_authorization": false,
+			"enable_sasl":               false,
+		}),
+	})
+	checks.Superusers(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+// --- AdvertisedAddresses ---
+
+func TestAdvertisedAddresses_Pass(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"advertised_kafka_api": []any{
+				map[string]any{"address": "192.168.1.10", "port": float64(9092)},
+			},
+			"advertised_rpc_api": map[string]any{
+				"address": "192.168.1.10", "port": float64(33145),
+			},
+		}),
+	})
+	checks.AdvertisedAddresses(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestAdvertisedAddresses_Fail_ZeroAddress(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{
+			"advertised_kafka_api": []any{
+				map[string]any{"address": "0.0.0.0", "port": float64(9092)},
+			},
+			"advertised_rpc_api": map[string]any{
+				"address": "192.168.1.10", "port": float64(33145),
+			},
+		}),
+	})
+	checks.AdvertisedAddresses(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestAdvertisedAddresses_Fail_Missing(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0},
+		}),
+		"/v1/node_config": jsonHandler(t, map[string]any{}),
+	})
+	checks.AdvertisedAddresses(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+// --- CPUMemoryRatio (non-K8s, via metrics) ---
+
+func TestCPUMemoryRatio_Pass_ViaMetrics(t *testing.T) {
+	// 4 shards, each with 1 GiB allocated + 1 GiB available = 2 GiB per shard
+	// 4 cores * 2 GiB = 8 GiB total, ratio = 2.0:1
+	metricsBody := `
+redpanda_memory_allocated_memory{shard="0"} 1073741824.0
+redpanda_memory_allocated_memory{shard="1"} 1073741824.0
+redpanda_memory_allocated_memory{shard="2"} 1073741824.0
+redpanda_memory_allocated_memory{shard="3"} 1073741824.0
+redpanda_memory_available_memory{shard="0"} 1073741824.0
+redpanda_memory_available_memory{shard="1"} 1073741824.0
+redpanda_memory_available_memory{shard="2"} 1073741824.0
+redpanda_memory_available_memory{shard="3"} 1073741824.0
+`
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, NumCores: 4},
+		}),
+		"/public_metrics": func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(metricsBody))
+		},
+	})
+	checks.CPUMemoryRatio(context.Background(), pc)
+
+	if len(pc.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(pc.Results))
+	}
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestCPUMemoryRatio_Fail_ViaMetrics(t *testing.T) {
+	// 4 shards, each with 0.25 GiB allocated + 0.25 GiB available = 0.5 GiB per shard
+	// 4 cores * 0.5 GiB = 2 GiB total, ratio = 0.5:1 (below 2:1)
+	metricsBody := `
+redpanda_memory_allocated_memory{shard="0"} 268435456.0
+redpanda_memory_allocated_memory{shard="1"} 268435456.0
+redpanda_memory_allocated_memory{shard="2"} 268435456.0
+redpanda_memory_allocated_memory{shard="3"} 268435456.0
+redpanda_memory_available_memory{shard="0"} 268435456.0
+redpanda_memory_available_memory{shard="1"} 268435456.0
+redpanda_memory_available_memory{shard="2"} 268435456.0
+redpanda_memory_available_memory{shard="3"} 268435456.0
+`
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, NumCores: 4},
+		}),
+		"/public_metrics": func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(metricsBody))
+		},
+	})
+	checks.CPUMemoryRatio(context.Background(), pc)
+
+	if len(pc.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(pc.Results))
+	}
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestCPUMemoryRatioRecommended_Warn_ViaMetrics(t *testing.T) {
+	// 4 cores, 2 GiB per core = ratio 2.0:1 (passes 1:2 minimum but below 1:4 recommended)
+	metricsBody := `
+redpanda_memory_allocated_memory{shard="0"} 1073741824.0
+redpanda_memory_allocated_memory{shard="1"} 1073741824.0
+redpanda_memory_allocated_memory{shard="2"} 1073741824.0
+redpanda_memory_allocated_memory{shard="3"} 1073741824.0
+redpanda_memory_available_memory{shard="0"} 1073741824.0
+redpanda_memory_available_memory{shard="1"} 1073741824.0
+redpanda_memory_available_memory{shard="2"} 1073741824.0
+redpanda_memory_available_memory{shard="3"} 1073741824.0
+`
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, NumCores: 4},
+		}),
+		"/public_metrics": func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(metricsBody))
+		},
+	})
+	checks.CPUMemoryRatioRecommended(context.Background(), pc)
+
+	if len(pc.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(pc.Results))
+	}
+	if pc.Results[0].Status != checker.StatusWarn {
+		t.Errorf("expected WARN, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
 // --- K8s checks skip when no K8s client ---
 
 func TestK8sChecks_SkipWithoutClient(t *testing.T) {
@@ -567,10 +954,13 @@ func TestK8sChecks_SkipWithoutClient(t *testing.T) {
 		{"PersistentStorage", checks.PersistentStorage},
 		{"ResourceLimits", checks.ResourceLimits},
 		{"PodDisruptionBudget", checks.PodDisruptionBudget},
-		{"CPUMemoryRatio", checks.CPUMemoryRatio},
 		{"NoFractionalCPU", checks.NoFractionalCPU},
 		{"TopologySpread", checks.TopologySpread},
 		{"NodeIsolation", checks.NodeIsolation},
+		{"StorageClassValidation", checks.StorageClassValidation},
+		{"StoragePerformance", checks.StoragePerformance},
+		{"KubernetesVersion", checks.KubernetesVersion},
+		{"NetworkPolicies", checks.NetworkPolicies},
 	}
 
 	for _, tc := range k8sChecks {

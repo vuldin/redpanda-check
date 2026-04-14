@@ -47,3 +47,44 @@ func License(ctx context.Context, pc *checker.ProductionChecker) {
 	r.Details += ")"
 	pc.AddResult(r)
 }
+
+// LicenseExpiry checks whether the license is approaching expiration.
+// Expiring within 7 days is a critical failure; within 30 days is a
+// recommended warning.
+func LicenseExpiry(ctx context.Context, pc *checker.ProductionChecker) {
+	license, err := pc.AdminClient.GetLicenseInfo(ctx)
+	if err != nil || !license.Loaded || license.Properties.Expires == 0 {
+		// Nothing to check — the License check handles missing/errored cases.
+		return
+	}
+
+	exp := time.Unix(license.Properties.Expires, 0)
+	remaining := time.Until(exp)
+	daysLeft := int(remaining.Hours() / 24)
+
+	if remaining <= 7*24*time.Hour {
+		pc.AddResult(checker.CheckResult{
+			Name:        "license_expiry",
+			Description: "License expiring within 7 days",
+			Level:       checker.LevelCritical,
+			Status:      checker.StatusFail,
+			Details:     fmt.Sprintf("License expires in %d days (%s) — renew immediately", daysLeft, exp.Format("2006-01-02")),
+		})
+	} else if remaining <= 30*24*time.Hour {
+		pc.AddResult(checker.CheckResult{
+			Name:        "license_expiry",
+			Description: "License expiring within 30 days",
+			Level:       checker.LevelRecommended,
+			Status:      checker.StatusWarn,
+			Details:     fmt.Sprintf("License expires in %d days (%s) — plan renewal", daysLeft, exp.Format("2006-01-02")),
+		})
+	} else {
+		pc.AddResult(checker.CheckResult{
+			Name:        "license_expiry",
+			Description: "License not expiring soon",
+			Level:       checker.LevelRecommended,
+			Status:      checker.StatusPass,
+			Details:     fmt.Sprintf("License expires in %d days (%s)", daysLeft, exp.Format("2006-01-02")),
+		})
+	}
+}
