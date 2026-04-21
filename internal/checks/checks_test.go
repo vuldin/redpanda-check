@@ -170,11 +170,11 @@ func TestMaintenanceMode_Fail(t *testing.T) {
 
 // --- VersionConsistency ---
 
-func TestVersionConsistency_Pass(t *testing.T) {
+func TestVersionConsistency_Pass_Latest(t *testing.T) {
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
-			{NodeID: 0, Version: "v24.1.1"},
-			{NodeID: 1, Version: "v24.1.1"},
+			{NodeID: 0, Version: "v26.1.1"},
+			{NodeID: 1, Version: "v26.1.1"},
 		}),
 	})
 	checks.VersionConsistency(context.Background(), pc)
@@ -184,17 +184,127 @@ func TestVersionConsistency_Pass(t *testing.T) {
 	}
 }
 
-func TestVersionConsistency_Fail(t *testing.T) {
+func TestVersionConsistency_Pass_NMinus2_StillSupported(t *testing.T) {
+	// N-2 is still supported by VersionConsistency; VersionRecency emits the WARN.
 	pc := newTestChecker(t, map[string]http.HandlerFunc{
 		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
-			{NodeID: 0, Version: "v24.1.1"},
-			{NodeID: 1, Version: "v24.2.0"},
+			{NodeID: 0, Version: "v25.2.0"},
+		}),
+	})
+	checks.VersionConsistency(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestVersionConsistency_Fail_InconsistentAcrossBrokers(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, Version: "v26.1.1"},
+			{NodeID: 1, Version: "v26.1.2"},
 		}),
 	})
 	checks.VersionConsistency(context.Background(), pc)
 
 	if pc.Results[0].Status != checker.StatusFail {
 		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestVersionConsistency_Fail_InvalidFormatDevBuild(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, Version: "v0.0.0-dev - 000000"},
+		}),
+	})
+	checks.VersionConsistency(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestVersionConsistency_Fail_UnsupportedOld(t *testing.T) {
+	// 24.1 is many minor releases behind 26.1 — out of support.
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, Version: "v24.1.1"},
+		}),
+	})
+	checks.VersionConsistency(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusFail {
+		t.Errorf("expected FAIL, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+// --- VersionRecency ---
+
+func TestVersionRecency_Pass_Latest(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, Version: "v26.1.1"},
+		}),
+	})
+	checks.VersionRecency(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestVersionRecency_Pass_NMinus1(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, Version: "v25.3.0"},
+		}),
+	})
+	checks.VersionRecency(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestVersionRecency_Warn_NMinus2(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, Version: "v25.2.0"},
+		}),
+	})
+	checks.VersionRecency(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusWarn {
+		t.Errorf("expected WARN, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestVersionRecency_Skip_OlderThanNMinus2(t *testing.T) {
+	// Older than N-2 is already a Critical FAIL in VersionConsistency, so
+	// VersionRecency skips to avoid duplicate signaling.
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, Version: "v24.1.1"},
+		}),
+	})
+	checks.VersionRecency(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestVersionRecency_Skip_InvalidFormat(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/brokers": jsonHandler(t, []rpadmin.Broker{
+			{NodeID: 0, Version: "v0.0.0-dev - 000000"},
+		}),
+	})
+	checks.VersionRecency(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
 	}
 }
 
@@ -936,6 +1046,68 @@ redpanda_memory_available_memory{shard="3"} 1073741824.0
 	}
 	if pc.Results[0].Status != checker.StatusWarn {
 		t.Errorf("expected WARN, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+// --- DebugBundlePermissions ---
+
+func TestDebugBundlePermissions_Pass(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/debug/bundle/check_permissions": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"probes":[
+				{"category":"file","resource":"/proc/slabinfo","ok":true},
+				{"category":"command","resource":"journalctl","ok":true}
+			]}`))
+		},
+	})
+	checks.DebugBundlePermissions(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusPass {
+		t.Errorf("expected PASS, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestDebugBundlePermissions_Warn(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/debug/bundle/check_permissions": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"probes":[
+				{"category":"file","resource":"/proc/slabinfo","ok":false,"error":"permission denied","hint":"requires root"},
+				{"category":"command","resource":"dmidecode","ok":false,"error":"requires root"}
+			]}`))
+		},
+	})
+	checks.DebugBundlePermissions(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusWarn {
+		t.Errorf("expected WARN, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestDebugBundlePermissions_Skip_NotImplemented(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/debug/bundle/check_permissions": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		},
+	})
+	checks.DebugBundlePermissions(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
+	}
+}
+
+func TestDebugBundlePermissions_Skip_NoSuperuser(t *testing.T) {
+	pc := newTestChecker(t, map[string]http.HandlerFunc{
+		"/v1/debug/bundle/check_permissions": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		},
+	})
+	checks.DebugBundlePermissions(context.Background(), pc)
+
+	if pc.Results[0].Status != checker.StatusSkip {
+		t.Errorf("expected SKIP, got %s: %s", pc.Results[0].Status, pc.Results[0].Details)
 	}
 }
 

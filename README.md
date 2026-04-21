@@ -52,10 +52,10 @@ redpanda-check --admin-url localhost:9644 \
 
 ### Output
 
-By default only failures and warnings are printed. Use `-v` to see all results:
+By default only failures and warnings are printed. Use `-a` (or `--all`) to see all results:
 
 ```
-redpanda-check --admin-url localhost:9644 -v
+redpanda-check --admin-url localhost:9644 -a
 ```
 
 JSON output for CI/CD pipelines:
@@ -92,7 +92,7 @@ Must pass for production readiness. Failures exit with code 1.
 | replication_factor | Default topic replication factor >= 3 |
 | min_topic_replications | Minimum topic replications >= 3 |
 | existing_topics_replication | All topics have replication factor >= 3 |
-| version_consistency | Same Redpanda version on all brokers |
+| version_consistency | Same valid `vMAJOR.MINOR.PATCH` version on all brokers, and within the supported window (latest or N-2) |
 | authorization_enabled | SASL enabled cluster-wide (`enable_sasl`) or per-listener (`kafka_enable_authorization` with `authentication_method: sasl` on each Kafka listener) |
 | sasl_users | At least one SASL user exists when auth is enabled |
 | tls_enabled | TLS on Kafka API and Admin API listeners (checked per-broker) |
@@ -120,12 +120,14 @@ Best practices. Failures produce warnings but do not affect exit code.
 | core_balancing | Core balancing on core count change enabled |
 | partition_balancer_status | Partition balancer not stalled |
 | ballast_file | Ballast file configured (checked per-broker) |
+| debug_bundle_permissions | `rpk debug bundle --dry-run` on each broker reports no permission gaps (file access, command availability, K8s RBAC) |
 | storage_class_validation | StorageClass provisioner and parameters match cloud provider best practices (K8s) |
 | cpu_memory_ratio_recommended | Memory-to-CPU ratio >= 4 GiB per core |
 | topology_spread | topologySpreadConstraints or podAntiAffinity configured (K8s) |
 | node_isolation | Dedicated node scheduling via nodeSelector/tolerations (K8s) |
 | tuning_init_container | Tuning init container completed on all pods (K8s) |
 | kubernetes_version | Kubernetes nodes running a supported version (K8s) |
+| version_recency | Redpanda version is the latest or N-1 (warns at N-2 approaching EOL) |
 | network_policies | At least one NetworkPolicy exists in namespace (K8s) |
 
 ## rpk plugin integration

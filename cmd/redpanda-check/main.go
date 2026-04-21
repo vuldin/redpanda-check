@@ -29,7 +29,7 @@ func main() {
 		namespace     string
 		kubeconfig    string
 		format        string
-		verbose       bool
+		showAll       bool
 		showVersion   bool
 	)
 
@@ -41,7 +41,7 @@ func main() {
 Checks cluster health, configuration, resource allocation, and operational
 best practices. Connects to the Redpanda admin API directly.
 
-By default only failed and warning checks are shown. Use -v to see all results.`,
+By default only failed and warning checks are shown. Use -a to see all results.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -60,7 +60,7 @@ By default only failed and warning checks are shown. Use -v to see all results.`
 				namespace:     namespace,
 				kubeconfig:    kubeconfig,
 				format:        format,
-				verbose:       verbose,
+				showAll:       showAll,
 			})
 		},
 	}
@@ -76,7 +76,7 @@ By default only failed and warning checks are shown. Use -v to see all results.`
 	f.StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (enables K8s checks)")
 	f.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file")
 	f.StringVar(&format, "format", "text", "Output format: text, json")
-	f.BoolVarP(&verbose, "verbose", "v", false, "Show all checks including passing")
+	f.BoolVarP(&showAll, "all", "a", false, "Show all checks including passing and skipped")
 	f.BoolVar(&showVersion, "version", false, "Print version and exit")
 
 	// Handle --help-autocomplete for rpk plugin integration.
@@ -102,7 +102,7 @@ type runConfig struct {
 	namespace     string
 	kubeconfig    string
 	format        string
-	verbose       bool
+	showAll       bool
 }
 
 func run(ctx context.Context, cfg runConfig) error {
@@ -180,6 +180,7 @@ func run(ctx context.Context, cfg runConfig) error {
 		checks.InternalRPCTLS,
 		checks.AdvertisedAddresses,
 		// Recommended checks (best practices).
+		checks.VersionRecency,
 		checks.Superusers,
 		checks.DataBalancing,
 		checks.RackAwareness,
@@ -188,6 +189,7 @@ func run(ctx context.Context, cfg runConfig) error {
 		checks.CoreBalancing,
 		checks.PartitionBalancerStatus,
 		checks.BallastFile,
+		checks.DebugBundlePermissions,
 		// K8s-specific checks (skip gracefully when no K8s client).
 		checks.PersistentStorage,
 		checks.StorageClassValidation,
@@ -217,7 +219,7 @@ func run(ctx context.Context, cfg runConfig) error {
 			return fmt.Errorf("unable to print JSON report: %v", err)
 		}
 	default:
-		checker.PrintText(os.Stdout, report, cfg.verbose, k8sClient != nil)
+		checker.PrintText(os.Stdout, report, cfg.showAll, k8sClient != nil)
 	}
 
 	if report.OverallStatus == checker.StatusFail {
